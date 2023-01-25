@@ -5,6 +5,7 @@ import (
 	"errors"
 	"log"
 	"net/http"
+	"os"
 	"path/filepath"
 	"regexp"
 	"sync"
@@ -24,8 +25,10 @@ type PageData struct {
 }
 
 type Activities struct {
-    mu sync.Mutex
-    db *sql.DB
+    mu          sync.Mutex
+    db          *sql.DB
+    regex       *regexp.Regexp
+    templates   *template.Template
 }
 
 const database string = "./data.db"
@@ -90,42 +93,43 @@ func (c *Activities) RetrieveList(limit int, offset int) ([]Account, error) {
     return accs, nil
 }
 
-func IndexHandle( 
-    w http.ResponseWriter, r *http.Request, templates *template.Template,
-    urlValidator *regexp.Regexp, db * Activities,
-) {
+func (c *Activities) Delete(s string) (int, error)  {
+    res, err := c.db.Exec("DELETE FROM activities WHERE name=?", s)
+    if err != nil {
+        return 0, errors.New("Error deleting element from database")
+    }
+     id := int64(0)
+     if id, err = res.LastInsertId(); err != nil {
+         return 0, errors.New("Error getting the last ID")
+     }
+     return int(id), nil
+}
+
+func IndexHandle(w http.ResponseWriter, r *http.Request, db * Activities) {
+    log.Println("Entered the Index Handler")
     if r.URL.Path != "/" {
         http.Error(w, "Something Went Wrong while attempting to open the server", http.StatusInternalServerError)
         return
     }
     switch r.Method {
     case "GET":
-        err := templates.ExecuteTemplate(w, "index.tmpl", nil)
+        err := db.templates.ExecuteTemplate(w, "index.html", nil)
         if err != nil {
             http.Error(w, err.Error(), http.StatusInternalServerError)
         }
     case "POST":
         log.Println("[Index] Activated the post request")
-        log.Println("Form Value: ", r.FormValue("Name"))
-        http.Redirect(w, r, "/writer/" + r.FormValue("Name"), http.StatusFound)
+        // log.Println("Form Value: ", r.FormValue("Name"))
+        http.Redirect(w, r, "/writer/", http.StatusFound)
         // http.Redirect(w, r, "https://google.com" , http.StatusFound)
     }
 }
 
-func WriterHandle( 
-    w http.ResponseWriter, r *http.Request, templates *template.Template,
-    urlValidator *regexp.Regexp, db * Activities,
-) {
+func WriterHandle(w http.ResponseWriter, r *http.Request, db * Activities) {
     log.Println("Entered the Writer Handler")
-    matches := urlValidator.FindStringSubmatch(r.URL.Path)
-    if matches[2] == "" {
-        log.Println("Error redirecting to root", matches)
-        http.Redirect(w, r, "/", http.StatusInternalServerError)
-        return
-    }
     switch r.Method {
     case "GET":
-        err := templates.ExecuteTemplate(w, "edit.tmpl", nil)
+        err := db.templates.ExecuteTemplate(w, "edit.html", nil)
         if err != nil {
             http.Error(w, err.Error(), http.StatusInternalServerError)
             return
@@ -138,59 +142,106 @@ func WriterHandle(
            http.Error(w, "There was an error writing the data", http.StatusInternalServerError)
            return
         }
-        http.Redirect(w, r, "/reader/" + acc.Name, http.StatusFound)
-
-        // http.Redirect(w, r, "/archiver", http.StatusOK)
+        http.Redirect(w, r, "/reader/" + r.FormValue("Name"), http.StatusFound)
     }
 }
 
-func ReaderHandle(
-    w http.ResponseWriter, r *http.Request, templates *template.Template,
-    urlValidator *regexp.Regexp, db * Activities,
-) {
-    log.Println("Entered the Reader Handler")
-    matches := urlValidator.FindStringSubmatch(r.URL.Path)
-    if matches[2] == "" {
-       http.Error(w, "There was an error writing the data", http.StatusInternalServerError)
-       return
+func ViewsHandle( w http.ResponseWriter, r *http.Request, db * Activities) {
+    log.Println("Entered the Views Handler")
+    accs, err := db.RetrieveList(100, 0)
+    if err != nil { http.Error(w, "There was an error querying the values", http.StatusInternalServerError)}
+    switch (r.Method) {
+    case "GET":
+        err = db.templates.ExecuteTemplate(w, "views.html", accs)
+        if err != nil {
+            http.Error(w, err.Error(), http.StatusInternalServerError)
+            return
+        }
+    case "POST":
+        log.Println(r.FormValue("submit"))
+        _, err = db.Delete(r.FormValue("submit"))
+        if err != nil {
+            http.Error(w, "There was an error deleting the data", http.StatusInternalServerError)
+            return
+        }
+        http.Redirect(w, r, "/deleted/", http.StatusFound)
     }
+}
 
-    acc, err := db.Retrieve(matches[2])
+func ReaderHandle(w http.ResponseWriter, r *http.Request, db * Activities) {
+    log.Println("Entered the Reader Handler")
+    matches := db.regex.FindStringSubmatch(r.URL.Path)
+    // log.Println(matches)
+    // if matches[2] == "" {
+    //    http.Error(w, "There was an error writing the data", http.StatusInternalServerError)
+    //    return
+    // }
 
-    err = templates.ExecuteTemplate(w, "view.tmpl", acc)
-    if err != nil {
-        http.Error(w, err.Error(), http.StatusInternalServerError)
+    if len(matches) < 3 {
         return
     }
+    acc, err := db.Retrieve(matches[2])
+
+    switch r.Method {
+    case "GET":
+        err = db.templates.ExecuteTemplate(w, "view.html", acc)
+        if err != nil {
+            http.Error(w, err.Error(), http.StatusInternalServerError)
+            return
+        }
+    case "POST":
+        http.Redirect(w, r, "/views/", http.StatusFound)
+    default: 
+        log.Println("Bruh")
+    }
 }
 
-// Handler Exists to Unglobaglize templates and urlValidator
-func MakeHandler(
-    fn func(http.ResponseWriter, *http.Request, *template.Template, *regexp.Regexp, *Activities),
-    templates *template.Template,
-    urlValidator *regexp.Regexp,
-    database *Activities,
-) http.HandlerFunc {
+func DeletedHandle(w http.ResponseWriter, r *http.Request, db * Activities) {
+    log.Println("Entered the Deleted Handler")
+    switch r.Method {
+    case "GET":
+        err := db.templates.ExecuteTemplate(w, "deleted.html", nil)
+        if err != nil {
+            http.Error(w, err.Error(), http.StatusInternalServerError)
+            return
+        }
+    case "POST":
+        // log.Println(r.Form)
+        // log.Println(r.FormValue("return"))
+        // log.Println(r.FormValue("view"))
+        if r.FormValue("view") == "view" {
+            http.Redirect(w, r, "/views/", http.StatusFound)
+        } else if r.FormValue("return") == "return" {
+            http.Redirect(w, r, "/", http.StatusFound)
+        }
+    }
+}
+
+func MakeHandler(fn func(http.ResponseWriter, *http.Request, *Activities), database *Activities) http.HandlerFunc {
     return func(w http.ResponseWriter, r *http.Request) {
-        fn(w, r, templates, urlValidator, database)
+        fn(w, r, database)
     }
 }
 
 func main() {
-    tmpl, err := filepath.Glob("./templates/*.tmpl")
-    if err != nil {
+    if _, err := os.Stat("./data.db"); errors.Is(err, os.ErrNotExist) {
+        os.Create("data.db")
+    }
+    html, err := filepath.Glob("./website/*.html"); if err != nil {
         log.Fatal(err)
     }
-    db, err := CreateActivities()
-    if err != nil {
+    db, err := CreateActivities(); if err != nil {
         log.Fatal(err)
     }
-    templates := template.Must(template.ParseFiles(tmpl...))
-    urlValidator := regexp.MustCompile("^/(writer|reader|archiver)/([a-zA-Z0-9]+)$")
+    db.templates = template.Must(template.ParseFiles(html...))
+    db.regex = regexp.MustCompile("^/(writer|reader|archiver|views)/([a-zA-Z0-9]+)$")
     mux := http.NewServeMux()
-    mux.HandleFunc("/", MakeHandler(IndexHandle, templates, urlValidator, db))
-    mux.HandleFunc("/reader/", MakeHandler(ReaderHandle, templates, urlValidator, db))
-    mux.HandleFunc("/writer/", MakeHandler(WriterHandle, templates, urlValidator, db))
+    mux.HandleFunc("/", MakeHandler(IndexHandle, db))
+    mux.HandleFunc("/reader/", MakeHandler(ReaderHandle, db))
+    mux.HandleFunc("/writer/", MakeHandler(WriterHandle, db))
+    mux.HandleFunc("/views/", MakeHandler(ViewsHandle,  db))
+    mux.HandleFunc("/deleted/", MakeHandler(DeletedHandle,  db))
+    mux.Handle("/css/", http.StripPrefix("/css/", http.FileServer(http.Dir("website/css"))))
 
     s := &http.Server{
         Addr: ":8080",

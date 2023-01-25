@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html lang="en">
+    <head>
+        <title>
+            Data View
+        </title>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <link href="/../css/styles.css" rel="stylesheet">
+    </head>
+    <body>
+        <section class="section">
+            <div class="container is-centered">
+                <h1 class="title"> All The Elements in the databse </h1>
+            </div>
+        </section>
+
+        <section class="section">
+            <div class="container is-centered">
+                <table class="table">
+                {{range $y, $v := . }}
+                   <tr>
+                        <td> {{ $v.Name }} </td>
+                        <td> {{ $v.Email }} </td>
+                        <td>
+                            <form method="post">
+                                <input class="button" type="submit" name="submit" value="{{$v.Name}}">
+                            </form>
+                        </td>
+                   </tr> 
+                {{ end }}
+                </table>
+            </div>
+        </section>
+    </body>
+</html>

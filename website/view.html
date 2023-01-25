@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html lang="en">
+    <head>
+        <title>{{.Name}}</title>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <!-- <link href="css/style.css" rel="stylesheet"> -->
+        <link href="/../css/styles.css" rel="stylesheet">
+    </head>
+    <body>
+        <section class="section">
+            <div class="container">
+                <div class="columns is-centered">
+                    <div class="column is-4"> </div>
+                    <div class="column is-4">
+                        <h1 class="title"> This is the View Page! </h1>
+                        <p> My name is <b>{{.Name}}</b> </p>
+                        <p> My email is <b>{{.Email}}</b> </p>
+                        <form method="post">
+                            <input type="submit" name="submit">
+                        </form>
+                    </div>
+                    <div class="column is-4"> </div>
+                </div>
+                
+            </div>
+        </section>
+    </body>
+</html>
