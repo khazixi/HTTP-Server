@@ -243,8 +243,13 @@ func main() {
     mux.HandleFunc("/deleted/", MakeHandler(DeletedHandle,  db))
     mux.Handle("/css/", http.StripPrefix("/css/", http.FileServer(http.Dir("website/css"))))
 
+    httpPort := os.Getenv("HTTP_PORT")
+    if httpPort == "" {
+        httpPort = "8080"
+    }
+
     s := &http.Server{
-        Addr: ":8080",
+        Addr: ":" + httpPort,
         Handler: mux,
         ReadTimeout: 10 * time.Second,
         WriteTimeout: 10 * time.Second,
